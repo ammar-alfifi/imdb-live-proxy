@@ -98,6 +98,38 @@ async function episodeOf(seriesId, season, episode) {
   return { ok: false, reason: 'episode_not_found', seriesId, season, episode };
 }
 
+/** تعداد كل حلقات موسم واحد بنداء واحد (أذكى من حلقة بحلقة). */
+async function seasonOf(seriesId, season) {
+  const episodes = [];
+  let after = null;
+  for (let page = 0; page < EPISODE_MAX_PAGES; page++) {
+    const args = `first: ${EPISODE_PAGE}${after ? ', after: $after' : ''}`;
+    const vars = after ? '$id: ID!, $after: ID!' : '$id: ID!';
+    const { status, data } = await gql(
+      `query(${vars}) { title(id: $id) { episodes { episodes(${args}) { pageInfo { hasNextPage endCursor } edges { node { id series { episodeNumber { seasonNumber episodeNumber } } ratingsSummary { aggregateRating voteCount } } } } } } }`,
+      after ? { id: seriesId, after } : { id: seriesId },
+      12000,
+    );
+    const conn = data?.data?.title?.episodes?.episodes;
+    if (!conn) return { ok: false, status, seriesId, season, episodes };
+    for (const edge of conn.edges || []) {
+      const num = edge?.node?.series?.episodeNumber;
+      if (num?.seasonNumber !== season) continue;
+      const summary = edge.node.ratingsSummary;
+      episodes.push({
+        episode: num.episodeNumber,
+        resolvedId: edge.node.id,
+        rating: typeof summary?.aggregateRating === 'number' ? summary.aggregateRating : null,
+        votes: normVotes(summary?.voteCount),
+      });
+    }
+    if (!conn.pageInfo?.hasNextPage) break;
+    after = conn.pageInfo.endCursor;
+  }
+  episodes.sort((a, b) => a.episode - b.episode);
+  return { ok: episodes.length > 0, seriesId, season, episodes };
+}
+
 function send(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -138,6 +170,14 @@ const server = http.createServer(async (req, res) => {
       const season = parseInt(parts[2], 10);
       const episode = parseInt(parts[3], 10);
       const result = await episodeOf(parts[1], season, episode);
+      return send(res, result.ok ? 200 : 404, { ...result, ms: Date.now() - began });
+    }
+
+    if (parts[0] === 'season' && parts[1] && parts[2]) {
+      if (!ID_RE.test(parts[1])) return send(res, 400, { error: 'invalid_series_id' });
+      const season = parseInt(parts[2], 10);
+      if (!Number.isFinite(season)) return send(res, 400, { error: 'invalid_season' });
+      const result = await seasonOf(parts[1], season);
       return send(res, result.ok ? 200 : 404, { ...result, ms: Date.now() - began });
     }
 
