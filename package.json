@@ -1,0 +1,14 @@
+{
+  "name": "imdb-live-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "وسيط حيّ لبيانات IMDb من مضيف غير محجوب (Render) — بلا اعتماديات",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
